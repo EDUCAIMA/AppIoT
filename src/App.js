@@ -79,7 +79,7 @@ function App() {
 //Interfaz visual
   return (
     <div style={{ textAlign: "center", padding: 30, fontFamily: "arial" }}>
-      <h1>Panel IoT - Eduardo Caicedo</h1>
+      <h1>Panel IoT - Eduardo Caicedo Esnayo en Render.com</h1>
 
       <div
         style={{
@@ -116,7 +116,7 @@ function App() {
 
         <div //Tercer cuadro Velocidad viento
           style={{
-            backgroundColor: "#e8e843ff",
+            backgroundColor: "#bbbb1bff",
             padding: "20px",
             borderRadius: "12px",
             width: "150px",
