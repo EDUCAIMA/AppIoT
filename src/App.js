@@ -65,9 +65,19 @@ const commonChartOptions = {
 function App() {
   const [rpm, setRpm] = useState(0);
   const [efficiency, setEfficiency] = useState(0);
-  const [bricksProduced, setBricksProduced] = useState(0); // Nuevo estado
+  
+  // Estados para métricas de ladrillos
+  const [totalBricks, setTotalBricks] = useState(0);
+  const [bricksPerMin, setBricksPerMin] = useState(0);
+  const [bricksPerHour, setBricksPerHour] = useState(0);
+  const [bricksPerDay, setBricksPerDay] = useState(0);
+  
   const [dataPoints, setDataPoints] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
+
+  // Referencias para el cálculo integral en el tiempo
+  const totalRevolutionsRef = React.useRef(0);
+  const lastMessageTimeRef = React.useRef(Date.now());
 
   useEffect(() => {
     // 1. Apuntamos al broker gratuito que estamos usando
@@ -99,23 +109,38 @@ function App() {
           // (o lo puedes calcular aquí matemáticamente después)
           const newEff = newRpm > 0 ? 100.0 : 0;
 
-          // Cálculo de ladrillos: 1 ladrillo por cada 105 RPM (revoluciones por minuto detectadas en ese momento)
-          // Nota: Si el sensor mide "revoluciones totales", este cálculo variaría, 
-          // pero asumiendo que el gauge 'RPM' del Arduino es la métrica base:
-          const newBricks = newRpm / 105;
+          // Integración de RPM para calcular revoluciones totales
+          const currentTime = Date.now();
+          // Diferencia de tiempo en minutos
+          const deltaTimeMinutes = (currentTime - lastMessageTimeRef.current) / 60000;
+          lastMessageTimeRef.current = currentTime;
+
+          // Integración: Sumar las revoluciones ocurridas en este delta de tiempo
+          // (Asumiendo velocidad constante durante el delta)
+          const revolutionsInInterval = newRpm * deltaTimeMinutes;
+
+          // Evitamos acumular saltos gigantes si el cliente se desconectó por mucho tiempo (>5 mins)
+          if (deltaTimeMinutes < 5) {
+            totalRevolutionsRef.current += revolutionsInInterval;
+          }
+
+          // 1 ladrillo por cada 15 revoluciones
+          const newTotalBricks = Math.floor(totalRevolutionsRef.current / 15);
+
+          // Tasas de producción (Ladrillos por minuto = RPM / 15)
+          const ratePerMin = newRpm / 15;
+          const ratePerHour = ratePerMin * 60;
+          const ratePerDay = ratePerHour * 24;
 
           setRpm(newRpm);
           setEfficiency(newEff);
-          setBricksProduced(newBricks);
+          setTotalBricks(newTotalBricks);
+          setBricksPerMin(ratePerMin);
+          setBricksPerHour(ratePerHour);
+          setBricksPerDay(ratePerDay);
 
           setDataPoints((prev) => {
             const lastPoints = prev.slice(-15);
-
-            // Calculamos el promedio acumulado considerando este nuevo punto
-            // Si no hay datos previos, el promedio es el RPM actual.
-            const previousSum = lastPoints.reduce((sum, p) => sum + p.rpm, 0);
-            const sumWithNew = previousSum + newRpm;
-            const newAvgRpm = sumWithNew / (lastPoints.length + 1);
 
             return [
               ...lastPoints,
@@ -123,7 +148,7 @@ function App() {
                 time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
                 rpm: newRpm,
                 efficiency: newEff,
-                avgRpm: newAvgRpm, // Añadimos el dato para la nueva gráfica
+                productionRate: ratePerHour, // Guardamos la tasa por hora para graficar
               },
             ];
           });
@@ -156,13 +181,13 @@ function App() {
     ],
   };
 
-  // Nueva gráfica: Promedio de RPM
-  const chartDataAvgRpm = {
+  // Nueva gráfica: Tasa de Producción (Ladrillos/Hora)
+  const chartDataProduction = {
     labels: dataPoints.map((p) => p.time),
     datasets: [
       {
-        label: "RPM Promedio (Histórico reciente)",
-        data: dataPoints.map((p) => p.avgRpm),
+        label: "Producción (Ladrillos / Hora)",
+        data: dataPoints.map((p) => p.productionRate),
         borderColor: "#f59e0b", // Amber 500
         backgroundColor: "rgba(245, 158, 11, 0.1)",
         pointBackgroundColor: "#f59e0b",
@@ -223,33 +248,59 @@ function App() {
             </div>
           </div>
 
-          {/* Card Nueva: Ladrillos Producidos */}
+          {/* Card 2: Ladrillos Producidos Totales */}
           <div className="kpi-card accent-amber">
             <div className="kpi-header">
-              <span className="kpi-title">Ladrillos Producidos</span>
-              {/* Icono de bloques/ladrillos para darle estilo */}
+              <span className="kpi-title">Total Producido</span>
               <svg width="24" height="24" fill="none" stroke="#94a3b8" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
               </svg>
             </div>
             <div className="kpi-value text-amber">
-              {/* Mostrar número entero estimado, limitando el número máximo a 2 decimales para precisión visual si lo desea */}
-              {parseFloat(bricksProduced).toFixed(2)}
-              <span className="kpi-unit">Und. / min</span>
+              {totalBricks}
+              <span className="kpi-unit">Ladrillos</span>
             </div>
           </div>
 
-          {/* Card 2: Efficiency */}
-          <div className="kpi-card accent-green">
+          {/* Card 3: Tasa por Minuto */}
+          <div className="kpi-card">
             <div className="kpi-header">
-              <span className="kpi-title">Eficiencia</span>
+              <span className="kpi-title">Producción / Minuto</span>
               <svg width="24" height="24" fill="none" stroke="#94a3b8" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </div>
-            <div className="kpi-value" style={{ color: efficiency < 50 ? "#ef4444" : "#22c55e" }}>
-              {parseFloat(efficiency).toFixed(1)}
-              <span className="kpi-unit">%</span>
+            <div className="kpi-value">
+              {parseFloat(bricksPerMin).toFixed(1)}
+              <span className="kpi-unit">Und/min</span>
+            </div>
+          </div>
+
+          {/* Card 4: Tasa por Hora */}
+          <div className="kpi-card">
+            <div className="kpi-header">
+              <span className="kpi-title">Producción / Hora</span>
+              <svg width="24" height="24" fill="none" stroke="#94a3b8" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div className="kpi-value">
+              {parseFloat(bricksPerHour).toFixed(0)}
+              <span className="kpi-unit">Und/hr</span>
+            </div>
+          </div>
+
+          {/* Card 5: Tasa por Día */}
+          <div className="kpi-card">
+            <div className="kpi-header">
+              <span className="kpi-title">Producción / Día</span>
+              <svg width="24" height="24" fill="none" stroke="#94a3b8" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </div>
+            <div className="kpi-value">
+              {parseFloat(bricksPerDay).toFixed(0)}
+              <span className="kpi-unit">Und/día</span>
             </div>
           </div>
         </div>
@@ -257,14 +308,13 @@ function App() {
         {/* Charts Grid */}
         <div className="charts-grid custom-grid-3">
           <div className="chart-card">
-            <h3 className="chart-title">Historial de Velocidad</h3>
+            <h3 className="chart-title">Historial de Velocidad (RPM)</h3>
             <Line data={chartDataRpm} options={commonChartOptions} />
           </div>
           <div className="chart-card">
-            <h3 className="chart-title">Promedio de Velocidad</h3>
-            <Line data={chartDataAvgRpm} options={{
+            <h3 className="chart-title">Tasa de Producción (Ladrillos/Hora)</h3>
+            <Line data={chartDataProduction} options={{
               ...commonChartOptions,
-              // Mantener eje Y algo dinámico base a los RPM
             }} />
           </div>
           <div className="chart-card">
