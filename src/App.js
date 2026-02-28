@@ -1,8 +1,17 @@
+import mqtt from "mqtt";
 import React, { useEffect, useState } from "react";
-import { Line, linearGradient } from "react-chartjs-2";
+import { Line } from "react-chartjs-2";
 import {
-  Chart as ChartJS, CategoryScale, LinearScale, PointElement, LineElement, Title, Tooltip, Legend,
+  Chart as ChartJS,
+  CategoryScale,
+  LinearScale,
+  PointElement,
+  LineElement,
+  Title,
+  Tooltip,
+  Legend,
 } from "chart.js";
+import "./App.css";
 
 ChartJS.register(
   CategoryScale,
@@ -14,124 +23,205 @@ ChartJS.register(
   Legend
 );
 
+// Chart Logic Helpers
+const commonChartOptions = {
+  responsive: true,
+  maintainAspectRatio: true,
+  plugins: {
+    legend: {
+      position: "top",
+      align: "end",
+      labels: {
+        color: "#94a3b8", // Slate 400
+        font: { family: "'Inter', sans-serif", size: 12 },
+        boxWidth: 10,
+        usePointStyle: true,
+      },
+    },
+    title: { display: false },
+    tooltip: {
+      backgroundColor: "#1e293b",
+      titleColor: "#f8fafc",
+      bodyColor: "#cbd5e1",
+      borderColor: "rgba(255,255,255,0.1)",
+      borderWidth: 1,
+      padding: 10,
+      cornerRadius: 8,
+    },
+  },
+  scales: {
+    x: {
+      grid: { color: "rgba(255,255,255,0.05)" },
+      ticks: { color: "#64748b" },
+    },
+    y: {
+      grid: { color: "rgba(255,255,255,0.05)" },
+      ticks: { color: "#64748b" },
+      beginAtZero: true,
+    },
+  },
+};
+
 function App() {
-  const [temperature, setTemperature] = useState(25);
-  const [humidity, setHumidity] = useState(50);
+  const [rpm, setRpm] = useState(0);
+  const [efficiency, setEfficiency] = useState(0);
   const [dataPoints, setDataPoints] = useState([]);
+  const [isConnected, setIsConnected] = useState(false);
 
-// Simular datos del sensor (en la práctica, aquí iría la conexión con MQTT o una API)
   useEffect(() => {
-    const interval = setInterval(() => {
-      const newTemp = (40 + Math.random() * 10).toFixed(1);
-      const newHum = (20 + Math.random() * 10).toFixed(1);
+    // 1. Apuntamos al broker gratuito que estamos usando
+    const brokerUrl = "wss://broker.emqx.io:8084/mqtt";
+    const options = {
+      reconnectPeriod: 2000,
+      connectTimeout: 4000,
+    };
 
-      setTemperature(newTemp);
-      setHumidity(newHum);
+    const client = mqtt.connect(brokerUrl, options);
 
-      setDataPoints((prev) => [
-        ...prev.slice(-10),
-        {
-          time: new Date().toLocaleTimeString(),
-          temp: newTemp,
-          hum: newHum,
-        },
-      ]);
-    }, 10000);
+    client.on("connect", () => {
+      console.log("✅ Conectado al broker MQTT");
+      setIsConnected(true);
+      // 2. Nos suscribimos al mismo Topic que le pusimos al código de Arduino
+      client.subscribe("mi_proyecto/sensor/rpm", (err) => {
+        if (!err) console.log("📡 Suscrito al tópico mi_proyecto/sensor/rpm");
+      });
+    });
 
-    return () => clearInterval(interval);
+    client.on("message", (topic, message) => {
+      try {
+        if (topic === "mi_proyecto/sensor/rpm") {
+          // 3. El Arduino envía un número en texto ("120.00"), no un JSON, así que lo leemos directo
+          const valorString = message.toString();
+          const newRpm = parseFloat(valorString) || 0;
+
+          // Como el Arduino por ahora solo envía RPM, dejamos un valor fijo para eficiencia 
+          // (o lo puedes calcular aquí matemáticamente después)
+          const newEff = newRpm > 0 ? 100.0 : 0;
+
+          setRpm(newRpm);
+          setEfficiency(newEff);
+
+          setDataPoints((prev) => [
+            ...prev.slice(-15), // Keep last 15 points
+            {
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+              rpm: newRpm,
+              efficiency: newEff,
+            },
+          ]);
+        }
+      } catch (e) {
+        console.error("❌ Error al parsear MQTT:", e);
+      }
+    });
+
+    client.on("close", () => setIsConnected(false));
+    client.on("error", (err) => console.error("⚠️ Error MQTT:", err));
+
+    return () => client.end();
   }, []);
 
-  // 4. Configuración del gráfico
-  const chartData = {
+  const chartDataRpm = {
     labels: dataPoints.map((p) => p.time),
     datasets: [
       {
-        label: "Temperatura (°C)",
-        data: dataPoints.map((p) => p.temp),
-        borderColor: "rgba(175, 203, 50, 1)",
-        backgroundColor: "rgba(93, 36, 48, 0.2)",
+        label: "RPM Actual",
+        data: dataPoints.map((p) => p.rpm),
+        borderColor: "#3b82f6", // Blue 500
+        backgroundColor: "rgba(59, 130, 246, 0.1)",
+        pointBackgroundColor: "#3b82f6",
+        pointBorderColor: "#1e293b",
+        pointBorderWidth: 2,
         tension: 0.4,
-      },
-      {
-        label: "Humedad (%)",
-        data: dataPoints.map((p) => p.hum),
-        borderColor: "rgba(54, 162, 235, 1)",
-        backgroundColor: "rgba(54, 162, 235, 0.2)",
-        tension: 0.3,
+        fill: true,
       },
     ],
   };
 
-  const options = {
-    responsive: true,
-    plugins: {
-      legend: {
-        position: "bottom",
+  const chartDataEff = {
+    labels: dataPoints.map((p) => p.time),
+    datasets: [
+      {
+        label: "Eficiencia (%)",
+        data: dataPoints.map((p) => p.efficiency),
+        borderColor: "#22c55e", // Green 500
+        backgroundColor: "rgba(34, 197, 94, 0.1)",
+        pointBackgroundColor: "#22c55e",
+        pointBorderColor: "#1e293b",
+        pointBorderWidth: 2,
+        tension: 0.4,
+        fill: true,
       },
-      title: {
-        display: true,
-        text: "Datos del Sensor en Tiempo Real",
-      },
-    },
+    ],
   };
 
-
-//Interfaz visual
   return (
-    <div style={{ textAlign: "center", padding: 30, fontFamily: "arial" }}>
-      <h1>Panel IoT - Eduardo Caicedo Esnayo en Render.com</h1>
+    <div className="app-container">
+      {/* Header */}
+      <header className="app-header">
+        <div className="header-title">
+          <h1>LADRILLERA VILLA LAURA</h1>
+          <h2>Monitor de Producción en Tiempo Real</h2>
+        </div>
+        <div className="status-badge">
+          <div className={`status-dot ${isConnected ? "active" : "inactive"}`}
+            style={{ color: isConnected ? "#22c55e" : "#ef4444" }} />
+          {isConnected ? "SISTEMA ONLINE" : "DESCONECTADO"}
+        </div>
+      </header>
 
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "center",
-          gap: "30px",
-          marginTop: "20px",
-        }}
-      >
-        <div
-          style={{
-            backgroundColor: "rgba(175, 203, 50, 1)",
-            padding: "30px",
-            borderRadius: "12px",
-            width: "150px",
-          }}
-        >
-          <h2>{temperature} °C</h2>
-          <p>T° Galpon 1</p>
+      <main className="dashboard-content">
+        {/* KPI Cards Grid */}
+        <div className="kpi-grid">
+          {/* Card 1: RPM */}
+          <div className="kpi-card accent-blue">
+            <div className="kpi-header">
+              <span className="kpi-title">Velocidad Actual</span>
+              <svg width="24" height="24" fill="none" stroke="#94a3b8" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+            </div>
+            <div className="kpi-value">
+              {parseFloat(rpm).toFixed(1)}
+              <span className="kpi-unit">RPM</span>
+            </div>
+          </div>
+
+          {/* Card 2: Efficiency */}
+          <div className="kpi-card accent-green">
+            <div className="kpi-header">
+              <span className="kpi-title">Eficiencia</span>
+              <svg width="24" height="24" fill="none" stroke="#94a3b8" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <div className="kpi-value" style={{ color: efficiency < 50 ? "#ef4444" : "#22c55e" }}>
+              {parseFloat(efficiency).toFixed(1)}
+              <span className="kpi-unit">%</span>
+            </div>
+          </div>
         </div>
 
-        <div
-          style={{
-            backgroundColor: "#cce5ff",
-            padding: "20px",
-            borderRadius: "12px",
-            width: "150px",
-          }}
-        >
-          <h2>{humidity} %</h2>
-          <p>T° Galpon 2</p>
+        {/* Charts Grid */}
+        <div className="charts-grid">
+          <div className="chart-card">
+            <h3 className="chart-title">Historial de Velocidad</h3>
+            <Line data={chartDataRpm} options={commonChartOptions} />
+          </div>
+          <div className="chart-card">
+            <h3 className="chart-title">Historial de Eficiencia</h3>
+            <Line data={chartDataEff} options={{
+              ...commonChartOptions,
+              scales: {
+                ...commonChartOptions.scales,
+                y: { ...commonChartOptions.scales.y, max: 100 }
+              }
+            }} />
+          </div>
         </div>
-
-
-        <div //Tercer cuadro Velocidad viento
-          style={{
-            backgroundColor: "#bbbb1bff",
-            padding: "20px",
-            borderRadius: "12px",
-            width: "150px",
-          }}
-        >
-          <h2>{humidity} °km/Hr</h2>
-          <p>T° Galpon 3</p>
-        </div>
-      </div>
-
-      <div style={{ marginTop: "40px" }}>
-        <Line data={chartData} options={options} />
-      </div>
+      </main>
     </div>
   );
 }
-//6. Exportar el componente App
+
 export default App;
