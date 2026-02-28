@@ -117,6 +117,20 @@
   background: var(--accent-green);
 }
 
+.kpi-card.accent-amber::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 4px;
+  height: 100%;
+  background: var(--accent-amber, #f59e0b);
+}
+
+.text-amber {
+  color: var(--accent-amber, #f59e0b) !important;
+}
+
 .kpi-header {
   display: flex;
   justify-content: space-between;
@@ -150,8 +164,12 @@
 /* Charts Grid */
 .charts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
   gap: 1.5rem;
+}
+
+.charts-grid.custom-grid-3 {
+  grid-template-columns: repeat(3, 1fr);
 }
 
 .chart-card {

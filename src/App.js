@@ -65,6 +65,7 @@ const commonChartOptions = {
 function App() {
   const [rpm, setRpm] = useState(0);
   const [efficiency, setEfficiency] = useState(0);
+  const [bricksProduced, setBricksProduced] = useState(0); // Nuevo estado
   const [dataPoints, setDataPoints] = useState([]);
   const [isConnected, setIsConnected] = useState(false);
 
@@ -98,17 +99,34 @@ function App() {
           // (o lo puedes calcular aquí matemáticamente después)
           const newEff = newRpm > 0 ? 100.0 : 0;
 
+          // Cálculo de ladrillos: 1 ladrillo por cada 105 RPM (revoluciones por minuto detectadas en ese momento)
+          // Nota: Si el sensor mide "revoluciones totales", este cálculo variaría, 
+          // pero asumiendo que el gauge 'RPM' del Arduino es la métrica base:
+          const newBricks = newRpm / 105;
+
           setRpm(newRpm);
           setEfficiency(newEff);
+          setBricksProduced(newBricks);
 
-          setDataPoints((prev) => [
-            ...prev.slice(-15), // Keep last 15 points
-            {
-              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
-              rpm: newRpm,
-              efficiency: newEff,
-            },
-          ]);
+          setDataPoints((prev) => {
+            const lastPoints = prev.slice(-15);
+
+            // Calculamos el promedio acumulado considerando este nuevo punto
+            // Si no hay datos previos, el promedio es el RPM actual.
+            const previousSum = lastPoints.reduce((sum, p) => sum + p.rpm, 0);
+            const sumWithNew = previousSum + newRpm;
+            const newAvgRpm = sumWithNew / (lastPoints.length + 1);
+
+            return [
+              ...lastPoints,
+              {
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
+                rpm: newRpm,
+                efficiency: newEff,
+                avgRpm: newAvgRpm, // Añadimos el dato para la nueva gráfica
+              },
+            ];
+          });
         }
       } catch (e) {
         console.error("❌ Error al parsear MQTT:", e);
@@ -130,6 +148,24 @@ function App() {
         borderColor: "#3b82f6", // Blue 500
         backgroundColor: "rgba(59, 130, 246, 0.1)",
         pointBackgroundColor: "#3b82f6",
+        pointBorderColor: "#1e293b",
+        pointBorderWidth: 2,
+        tension: 0.4,
+        fill: true,
+      },
+    ],
+  };
+
+  // Nueva gráfica: Promedio de RPM
+  const chartDataAvgRpm = {
+    labels: dataPoints.map((p) => p.time),
+    datasets: [
+      {
+        label: "RPM Promedio (Histórico reciente)",
+        data: dataPoints.map((p) => p.avgRpm),
+        borderColor: "#f59e0b", // Amber 500
+        backgroundColor: "rgba(245, 158, 11, 0.1)",
+        pointBackgroundColor: "#f59e0b",
         pointBorderColor: "#1e293b",
         pointBorderWidth: 2,
         tension: 0.4,
@@ -187,6 +223,22 @@ function App() {
             </div>
           </div>
 
+          {/* Card Nueva: Ladrillos Producidos */}
+          <div className="kpi-card accent-amber">
+            <div className="kpi-header">
+              <span className="kpi-title">Ladrillos Producidos</span>
+              {/* Icono de bloques/ladrillos para darle estilo */}
+              <svg width="24" height="24" fill="none" stroke="#94a3b8" strokeWidth="2" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+              </svg>
+            </div>
+            <div className="kpi-value text-amber">
+              {/* Mostrar número entero estimado, limitando el número máximo a 2 decimales para precisión visual si lo desea */}
+              {parseFloat(bricksProduced).toFixed(2)}
+              <span className="kpi-unit">Und. / min</span>
+            </div>
+          </div>
+
           {/* Card 2: Efficiency */}
           <div className="kpi-card accent-green">
             <div className="kpi-header">
@@ -203,10 +255,17 @@ function App() {
         </div>
 
         {/* Charts Grid */}
-        <div className="charts-grid">
+        <div className="charts-grid custom-grid-3">
           <div className="chart-card">
             <h3 className="chart-title">Historial de Velocidad</h3>
             <Line data={chartDataRpm} options={commonChartOptions} />
+          </div>
+          <div className="chart-card">
+            <h3 className="chart-title">Promedio de Velocidad</h3>
+            <Line data={chartDataAvgRpm} options={{
+              ...commonChartOptions,
+              // Mantener eje Y algo dinámico base a los RPM
+            }} />
           </div>
           <div className="chart-card">
             <h3 className="chart-title">Historial de Eficiencia</h3>
