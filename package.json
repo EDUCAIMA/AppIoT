@@ -14,7 +14,7 @@
     "serve": "^14.2.5"
   },
   "scripts": {
-    "start": "serve -s build -l tcp://0.0.0.0:$PORT",
+    "start": "serve -s build",
     "build": "react-scripts build",
     "test": "react-scripts test",
     "eject": "react-scripts eject"
@@ -32,6 +32,6 @@
     ]
   },
   "engines": {
-    "nodo": "18.x"
+    "node": "18.x"
   }
 }
